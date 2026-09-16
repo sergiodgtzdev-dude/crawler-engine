@@ -5,6 +5,8 @@ from crawler import get_clean_outbound_url as get_clean_outbound_url, Crawler
 from dotenv import load_dotenv
 import math
 import logging
+import json
+import redis.asyncio as aioredis
 
 load_dotenv(".venv/.env")
 
@@ -49,6 +51,23 @@ batch_size = 2
 max_workers = 50
 
 # pprint.pp(response["results"][0])
+
+
+async def save_to_redis(search_term: str, data: list, ttl_seconds: int = 3600):
+    # Opening redis db connection
+    r = aioredis.Redis(host="localhost", port=6379, db=0)
+
+    # Normalizing cache key
+    cache_key = f"crawl:{search_term.lower().replace(' ', '_')}"
+
+    # Serialize and save with expiration time of 1 hour
+    await r.set(cache_key, json.dumps(data, default=str), ex=ttl_seconds)
+
+    # Retrieve the inserted values for testing and debugging purposes
+    # value = await r.get(cache_key)
+    await r.close()
+    logging.info(f"Results saved under key: '{cache_key}' (TTL: {ttl_seconds}s)")
+    # return value
 
 
 async def main():
@@ -115,6 +134,7 @@ async def main():
     logging.info(f"All tasks completed. Exiting. Processed URLs: {len(visited_urls)}")
     # Prints URLs for validation purposes
     # pprint.pp(processed_urls[1:5])
+    await save_to_redis(search_term=search_term, data=processed_urls, ttl_seconds=3600)
 
 
 if __name__ == "__main__":
