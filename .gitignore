@@ -228,6 +228,7 @@ obj/
 *.user
 *.userosscache
 *.sln.docstates
+appsettings.Development.json
 
 # === IDEs (PyCharm, Visual Studio, VS Code) ===
 .idea/
