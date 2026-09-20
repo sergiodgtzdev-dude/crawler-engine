@@ -1,3 +1,5 @@
+# ===== PYTHON =====
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -218,3 +220,20 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# === C# / .NET ===
+bin/
+obj/
+.vs/
+*.user
+*.userosscache
+*.sln.docstates
+
+# === IDEs (PyCharm, Visual Studio, VS Code) ===
+.idea/
+.vscode/
+
+# === Variables de entorno y SO ===
+.env
+.DS_Store
+Thumbs.db

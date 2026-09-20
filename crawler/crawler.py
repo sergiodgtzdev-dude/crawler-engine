@@ -79,12 +79,12 @@ class Crawler:
             self.current_page_url = url
             result = None
             try:
-                logging.info(f"worker {self.id} Processing {url} at depth {depth}")
+                logging.info(f" {self.id} Processing {url} at depth {depth}")
                 if depth <= 1:
-                    result = await asyncio.wait_for(self.process_text(), timeout=3.0)
+                    result = await self.process_text()
                 else:
                     logging.info(
-                        f"worker {self.id} Skipping {url} at depth {depth} (max depth reached)"
+                        f" {self.id} Skipping {url} at depth {depth} (max depth reached)"
                     )
             except Exception as e:
                 logging.error(f"Error processing {url}: {e}")
@@ -115,7 +115,7 @@ class Crawler:
         ) as client:
             try:
                 response = await client.get(
-                    url=current_page_url, headers=self.headers, timeout=10.0
+                    url=current_page_url, headers=self.headers, timeout=3.0
                 )
             except httpx.HTTPError as e:
                 logging.warning(
