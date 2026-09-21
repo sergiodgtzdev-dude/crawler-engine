@@ -52,22 +52,22 @@ max_workers = 50
 
 # pprint.pp(response["results"][0])
 
-
-async def save_to_redis(search_term: str, data: list, ttl_seconds: int = 3600):
-    # Opening redis db connection
-    r = aioredis.Redis(host="localhost", port=6379, db=0)
-
-    # Normalizing cache key
+#Returns the cache key for the search term and saves the data to redis with a TTL of 1 hour
+async def save_to_redis(search_term: str, data: list, ttl_seconds: int = 3600) -> str:
     cache_key = f"crawl:{search_term.lower().replace(' ', '_')}"
 
-    # Serialize and save with expiration time of 1 hour
-    await r.set(cache_key, json.dumps(data, default=str), ex=ttl_seconds)
+    # Opening redis db connection
+    async with aioredis.Redis(host="localhost", port=6379, db=0) as r:
+        # Normalizing cache key
 
-    # Retrieve the inserted values for testing and debugging purposes
-    # value = await r.get(cache_key)
-    await r.close()
-    logging.info(f"Results saved under key: '{cache_key}' (TTL: {ttl_seconds}s)")
-    # return value
+        # Serialize and save with expiration time of 1 hour
+        await r.set(cache_key, json.dumps(data, ensure_ascii=False,), ex=ttl_seconds)
+
+        # Retrieve the inserted values for testing and debugging purposes
+        # value = await r.get(cache_key)
+        logging.info(f"Results saved under key: '{cache_key}' (TTL: {ttl_seconds}s)")
+
+    return cache_key
 
 
 async def main():
@@ -132,7 +132,7 @@ async def main():
         task.cancel()  # Cancel any remaining tasks
 
     logging.info(f"All tasks completed. Exiting. Processed URLs: {len(visited_urls)}")
-    # Prints URLs for validation purposes
+    # Prints URLs for testing and verification purposes
     # pprint.pp(processed_urls[1:5])
     await save_to_redis(search_term=search_term, data=processed_urls, ttl_seconds=3600)
 

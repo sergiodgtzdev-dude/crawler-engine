@@ -1,3 +1,4 @@
+using SearchEngineAPI.DTO;
 using StackExchange.Redis;
 using System.Text.Json;
 
@@ -25,22 +26,20 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexe
 
 var app = builder.Build();
 
-//TODO : Implementar un endpoint para verificar la conexión a Redis y la existencia de la clave "laptop_origins" en la base de datos.
-//Este endpoint debería devolver un mensaje indicando si la conexión fue exitosa y si la clave existe, junto con la latencia de la conexión.
 
-
-// Endpoint temporal para verificar la conexión a Redis
+// Test endpoint for Redis
 app.MapGet("/test-redis", (IConnectionMultiplexer redis) =>
 {
     try
     {
         var db = redis.GetDatabase(0);
-        // Envía un comando PING a Redis y mide la latencia
+        // PING the database for latency
         var latency = db.Ping();
 
         RedisValue redisData = db.StringGet("crawl:laptop_origins");
 
-        // 2. Verificar si la clave realmente existe en la base de datos
+
+        // Verify if the key exists in Redis
         if (!redisData.HasValue)
         {
             return Results.NotFound(new
@@ -51,12 +50,21 @@ app.MapGet("/test-redis", (IConnectionMultiplexer redis) =>
         } 
         else
         {
-            var jsonParsed = JsonDocument.Parse(redisData.ToString());
+            // Convert redis Data to a string for deserialization
+            string redisDataString = redisData.ToString().Trim();
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+            };
+
+            List<CrawlResponse>? jsonParsedList = JsonSerializer.Deserialize<List<CrawlResponse>>(redisDataString);
             return Results.Ok(new
             {
                 status = "¡Conectado exitosamente a Redis!",
+                message = "La clave 'laptop_origins' existe en la base de datos, mensaje cargado con éxito",
                 latencyMs = latency.TotalMilliseconds,
-                testResutls = jsonParsed.RootElement
+                testResult = jsonParsedList[1]
             });
         }
 

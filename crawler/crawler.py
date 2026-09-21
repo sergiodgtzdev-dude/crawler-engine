@@ -162,7 +162,7 @@ class Crawler:
             # Creating the clean directory response with the processed information
             clean_text = soup.get_text(separator=" ", strip=True)
             processed_url = {
-                "url": response.url,
+                "url": str(response.url),
                 "status_code": response.status_code,
                 "crawled_at": timestamp,
                 "metadata": {
