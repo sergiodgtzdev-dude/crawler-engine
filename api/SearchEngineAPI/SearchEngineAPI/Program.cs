@@ -1,6 +1,10 @@
+using Microsoft.AspNetCore.Http.HttpResults;
 using SearchEngineAPI.DTO;
 using StackExchange.Redis;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Linq;
+
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -73,6 +77,78 @@ app.MapGet("/test-redis", (IConnectionMultiplexer redis) =>
     catch (Exception ex)
     {
         return Results.Problem($"Error de conexión: {ex.Message}");
+    }
+});
+
+app.MapGet("api/search", (string q, IConnectionMultiplexer redis) =>
+{
+    // Implementation for the search endpoint
+    if (string.IsNullOrWhiteSpace(q)){
+        return Results.BadRequest(new { error = "A search term is required" });
+
+    }
+    else
+    {
+        string redisKey = $"crawl:{q.Trim().ToLower().Replace(" ", "_")}";
+        var db = redis.GetDatabase(0);
+        var latency = db.Ping();
+        
+        //Searching for search term
+
+        RedisValue redisData = db.StringGet($"{redisKey}");
+        if (!redisData.HasValue)
+        {
+            //No value found, invoking python backend
+            return Results.Ok(new
+            {
+                status = "Conectado a Redis",
+                message = $"Searching for term from the python backend {redisKey}",
+                latency = latency
+            });
+
+        }
+        else
+        {
+            //Deserializing the JSON Object from Redis
+            string redisDataString = redisData.ToString().Trim();
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+            };
+
+
+            List<CrawlResponse>? jsonParsedList = JsonSerializer.Deserialize<List<CrawlResponse>>(redisDataString);
+
+            //separtes query string by keyword
+            string[] searchWords = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            List<CrawlResponse> filteredResults = jsonParsedList
+            .Where(p => searchWords.Any(word =>
+                (p.Metadata?.Title?.Contains(word, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.Content?.CleanText?.Contains(word, StringComparison.OrdinalIgnoreCase) ?? false) ||
+                (p.Metadata?.Description?.Contains(word, StringComparison.OrdinalIgnoreCase) ?? false)
+            ))
+            .ToList();
+
+            foreach (CrawlResponse p in filteredResults)
+            {
+                Console.Write($"Title: {p.Metadata.Title}, Desc: {p.Metadata.Description}\n");
+            }
+            
+            return Results.Ok(new
+            {
+                status = "Connected to Redis",
+                message = $"Found information for term {redisKey} in redis cache",
+                latency = latency,
+                totalFilteredResults = filteredResults.Count(),
+                totalResults = jsonParsedList.Count()
+                
+            });
+        }
+
+
+        
     }
 });
 
