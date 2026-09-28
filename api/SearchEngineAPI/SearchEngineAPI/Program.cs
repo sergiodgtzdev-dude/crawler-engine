@@ -1,22 +1,28 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.Mvc;
 using SearchEngineAPI.DTO;
 using StackExchange.Redis;
+using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Linq;
+using System.Xml.Linq;
 
 
 
 var builder = WebApplication.CreateBuilder(args);
+
+//Extracting Auth_token from dotnet secrets
+var secretAuthKey = builder.Configuration["AdminSettings:SecretKey"];
+
+//Extracting connection string from appsettings.json or environment variable
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
 
 // Add services to the container.
 
 builder.Services.AddControllers();
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
-
-//Extracting connection string from appsettings.json or environment variable
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
 
 //Parsing the connection string and configuring Redis options
 ConfigurationOptions config = ConfigurationOptions.Parse(redisConnectionString);
@@ -25,8 +31,17 @@ config.ConnectRetry = 5;
 config.ConnectTimeout = 5000;
 config.SyncTimeout = 5000;
 
+ConfigurationOptions adminConfig = config.Clone();
+adminConfig.AllowAdmin = true;
 
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp => ConnectionMultiplexer.Connect(config));
+//Using keyed Connections
+//Connection for normal queries such as GET
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp => 
+ConnectionMultiplexer.Connect(config));
+
+//Connection for actions that require admin privieleges
+builder.Services.AddKeyedSingleton<IConnectionMultiplexer>("admin-redis", (sp, key) =>
+    ConnectionMultiplexer.Connect(adminConfig));
 
 var app = builder.Build();
 
@@ -62,7 +77,7 @@ app.MapGet("/test-redis", (IConnectionMultiplexer redis) =>
                 PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
             };
 
-            List<CrawlResponse>? jsonParsedList = JsonSerializer.Deserialize<List<CrawlResponse>>(redisDataString);
+            List<CrawlResponse>? jsonParsedList = JsonSerializer.Deserialize<List<CrawlResponse>>(redisDataString, options);
             return Results.Ok(new
             {
                 status = "¡Conectado exitosamente a Redis!",
@@ -80,7 +95,7 @@ app.MapGet("/test-redis", (IConnectionMultiplexer redis) =>
     }
 });
 
-app.MapGet("api/search", (string q, IConnectionMultiplexer redis) =>
+app.MapGet("api/search", async (string q, IConnectionMultiplexer redis) =>
 {
     // Implementation for the search endpoint
     if (string.IsNullOrWhiteSpace(q)){
@@ -98,12 +113,14 @@ app.MapGet("api/search", (string q, IConnectionMultiplexer redis) =>
         RedisValue redisData = db.StringGet($"{redisKey}");
         if (!redisData.HasValue)
         {
-            //No value found, invoking python backend
-            return Results.Ok(new
+            //No value found, pushing the term for search to a redis queue for python backend to crawl
+
+            await db.ListLeftPushAsync("queue:crawling", q);
+            return Results.Accepted(uri: $"api/search?q={q}" , value: new
             {
-                status = "Conectado a Redis",
+                status = "Pending",
                 message = $"Searching for term from the python backend {redisKey}",
-                latency = latency
+                queueKey = "queue:crawling"
             });
 
         }
@@ -118,7 +135,7 @@ app.MapGet("api/search", (string q, IConnectionMultiplexer redis) =>
             };
 
 
-            List<CrawlResponse>? jsonParsedList = JsonSerializer.Deserialize<List<CrawlResponse>>(redisDataString);
+            List<CrawlResponse>? jsonParsedList = JsonSerializer.Deserialize<List<CrawlResponse>>(redisDataString, options);
 
             //separtes query string by keyword
             string[] searchWords = q.Split(' ', StringSplitOptions.RemoveEmptyEntries);
@@ -135,21 +152,53 @@ app.MapGet("api/search", (string q, IConnectionMultiplexer redis) =>
             {
                 Console.Write($"Title: {p.Metadata.Title}, Desc: {p.Metadata.Description}\n");
             }
-            
+
             return Results.Ok(new
             {
                 status = "Connected to Redis",
                 message = $"Found information for term {redisKey} in redis cache",
                 latency = latency,
                 totalFilteredResults = filteredResults.Count(),
-                totalResults = jsonParsedList.Count()
-                
+                totalResults = jsonParsedList.Count(),
+                sampleResult = jsonParsedList.FirstOrDefault()
+
             });
         }
-
-
-        
     }
+});
+
+app.MapDelete("api/admin/flush", (HttpRequest request, [FromKeyedServices("admin-redis")]IConnectionMultiplexer redis) =>
+{
+    try
+    {
+        string? authHeader = request.Headers.Authorization;
+
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Unauthorized(); // HTTP 401
+        }
+
+        authHeader = authHeader.Substring("Bearer ".Length).Trim();
+
+        if (string.IsNullOrEmpty(secretAuthKey) && !authHeader.Equals(secretAuthKey.ToString(), StringComparison.Ordinal))
+        {
+            return Results.Unauthorized();
+        }
+        else
+        {
+            var endpoints = redis.GetEndPoints();
+            var server = redis.GetServer(endpoints.First());
+            server.FlushDatabase(0); // Flush database 0
+            return Results.Ok(new { message = "Redis Cache flushed successfully" });
+        }
+
+    }
+    catch(Exception e)
+    {
+        return Results.BadRequest();
+    }
+    
+    
 });
 
 // Configure the HTTP request pipeline.

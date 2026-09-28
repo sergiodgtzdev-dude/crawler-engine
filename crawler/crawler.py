@@ -5,6 +5,7 @@ import asyncio
 import httpx
 import time
 import logging
+import redis.asyncio as aioredis
 from dotenv import load_dotenv
 from urllib.parse import urljoin, urldefrag, urlparse
 
@@ -12,7 +13,7 @@ load_dotenv(".venv/.env")
 
 # Logging config
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(asctime)s [%(levelname)s] Worker %(message)s",
     datefmt="%H:%M:%S",
     handlers=[logging.StreamHandler()],
@@ -74,7 +75,6 @@ class Crawler:
 
     async def consume(self):
         while True:
-            retries = 0
             url, depth = await self.queue.get()
             self.current_page_url = url
             result = None

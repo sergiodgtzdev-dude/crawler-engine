@@ -1,8 +1,8 @@
 [project]
-name = "search-engine-project"
+name = "search-engine-project-crawler-backend"
 version = "0.1.0"
-description = "Add your description here"
-requires-python = ">=3.11"
+description = "This is a crawler project that crawls search terms and pushes them to a redis DB"
+requires-python = "==3.11"
 dependencies = [
     "aiohttp==3.14.3",
     "beautifulsoup4==4.15.0",

@@ -1,3 +1,4 @@
+import redis.exceptions
 import requests
 import pprint
 import asyncio
@@ -7,6 +8,7 @@ import math
 import logging
 import json
 import redis.asyncio as aioredis
+import uuid
 
 load_dotenv(".venv/.env")
 
@@ -65,19 +67,18 @@ async def save_to_redis(search_term: str, data: list, ttl_seconds: int = 3600) -
 
         # Retrieve the inserted values for testing and debugging purposes
         # value = await r.get(cache_key)
-        logging.info(f"Results saved under key: '{cache_key}' (TTL: {ttl_seconds}s)")
+        logging.warning(f"Results saved under key: '{cache_key}' (TTL: {ttl_seconds}s)")
 
     return cache_key
 
-
-async def main():
-
-    # Initializing the queue and the visited urls set
+#TODO: Implementar error handling para que cuando una llave en proceso de ser crawleada llegue no se añada a la cola.
+#Main function that orchestrates the  crawl operation
+async def crawl_term(search_term : str, job_id : str) -> list:
+    #Initializing the queue and the visited urls set
     visited_urls = set()
     url_queue = []
     queue = asyncio.Queue()
     pool = []
-    search_term = "laptop origins"
     visited_urls = set()
     processed_urls = []
 
@@ -131,11 +132,38 @@ async def main():
     for task in tasks:
         task.cancel()  # Cancel any remaining tasks
 
-    logging.info(f"All tasks completed. Exiting. Processed URLs: {len(visited_urls)}")
+    logging.warning(f"Finished job with id {job_id} - Exiting. Processed URLs: {len(visited_urls)}")
     # Prints URLs for testing and verification purposes
     # pprint.pp(processed_urls[1:5])
-    await save_to_redis(search_term=search_term, data=processed_urls, ttl_seconds=3600)
 
+    return processed_urls
+
+
+#Function that checks the Redis Queue for new terms to crawl and invokes the main function
+async def worker():
+    async with aioredis.Redis(host="localhost", port=6379, db=0) as r:
+        logging.warning("Application listening to Redis Queue 'queue:crawling'")
+        while True:
+            try:
+                #Waiting for tasks to populate the queue and decoding search term to utf-8
+                _, raw_term = await r.brpop("queue:crawling", timeout= 5)
+                if raw_term is None:
+                    continue
+
+                search_term = raw_term.decode("utf-8")
+                job_id = str(uuid.uuid4())
+
+                logging.warning(f"Job received, assigned ID {job_id}")
+                data = await crawl_term(search_term, job_id)
+                await save_to_redis(search_term=search_term, data=data, ttl_seconds=3600)
+
+            except redis.exceptions.TimeoutError:
+                continue
+            except Exception as e:
+                logging.error(
+                    f"Error inesperado procesando el trabajo: {e}",
+                    exc_info=True,
+                )
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(worker())
