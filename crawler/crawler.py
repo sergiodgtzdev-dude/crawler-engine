@@ -1,11 +1,8 @@
-import requests
-import pprint
 from bs4 import BeautifulSoup
 import asyncio
 import httpx
 import time
 import logging
-import redis.asyncio as aioredis
 from dotenv import load_dotenv
 from urllib.parse import urljoin, urldefrag, urlparse
 

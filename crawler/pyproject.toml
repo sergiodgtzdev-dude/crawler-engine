@@ -1,7 +1,7 @@
 [project]
 name = "search-engine-project-crawler-backend"
 version = "0.1.0"
-description = "This is a crawler project that crawls search terms and pushes them to a redis DB"
+description = "This is a crawler project that listens to a redis DB queue, crawls search terms and pushes them to a redis DB"
 requires-python = "==3.11"
 dependencies = [
     "aiohttp==3.14.3",

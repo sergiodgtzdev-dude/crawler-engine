@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  # Servicio 1: Redis Cache & Broker
+  redis:
+    image: redis:alpine
+    container_name: search_redis
+    ports:
+      - "6379:6379"
+    restart: always
+    networks:
+      - search-net
+
+  # Servicio 2: Meta-buscador SearXNG
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      - SEARXNG_SECRET=portfolio_password_key
+    restart: always
+    networks:
+      - search-net
+
+  # Servicio 3: API C# (.NET 10)
+  api:
+    build:
+      context: ./api/SearchEngineAPI/SearchEngineAPI
+      dockerfile: Dockerfile
+    container_name: search_api
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__Redis=redis:6379
+      - AdminSettings__SecretKey=${ADMIN_SECRET_KEY:-mi_secreto_bearer_super_seguro_123}
+    depends_on:
+      - redis
+    networks:
+      - search-net
+
+  # Servicio 4: Worker Python (Web Scraper + Client de SearXNG)
+  crawler:
+    build:
+      context: ./crawler
+      dockerfile: Dockerfile
+    container_name: search_worker
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SEARXNG_URL=http://searxng:8080
+    depends_on:
+      - redis
+      - searxng
+    restart: always
+    networks:
+      - search-net
+
+networks:
+  search-net:
+    driver: bridge
