@@ -55,7 +55,7 @@ BLOCKED_DOMAINS = {
 
 # Batch size that each worker will process at a time, and the maximum number of workers that can run concurrently
 batch_size = 2
-max_workers = 50
+max_workers = 75
 
 # pprint.pp(response["results"][0])
 
@@ -184,7 +184,7 @@ async def worker():
                 continue
             except Exception as e:
                 logging.error(
-                    f"Error inesperado procesando el trabajo: {e}",
+                    f"Unexpected Error processing job {job_id} with term '{search_term}': {e}",
                     exc_info=True,
                 )
             finally:

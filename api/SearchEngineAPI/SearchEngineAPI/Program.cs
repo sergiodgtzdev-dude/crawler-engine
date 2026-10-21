@@ -6,6 +6,7 @@ using StackExchange.Redis;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading.RateLimiting;
 using System.Xml.Linq;
 
 
@@ -43,7 +44,41 @@ ConnectionMultiplexer.Connect(config));
 builder.Services.AddKeyedSingleton<IConnectionMultiplexer>("admin-redis", (sp, key) =>
     ConnectionMultiplexer.Connect(adminConfig));
 
+//Adding CORS policy to allow frontend to contact the API
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowViteFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173") // Permitir tu frontend de Vite
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
+
+// Adding rate limiting to prevent abuse
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync("Too many requests. Please try again later.", cancellationToken);
+    };
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? httpContext.Request.Headers.Host.ToString(),
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 80,
+                QueueLimit = 0,
+                Window = TimeSpan.FromMinutes(1)
+            }));
+});
+
 var app = builder.Build();
+app.UseCors("AllowViteFrontend");
+app.UseRateLimiter();
 
 
 // Test endpoint for Redis
@@ -155,12 +190,13 @@ app.MapGet("api/search", async (string q, IConnectionMultiplexer redis) =>
 
             return Results.Ok(new
             {
-                status = "Connected to Redis",
+                status = "Hit from Redis",
                 message = $"Found information for term {redisKey} in redis cache",
                 latency = latency,
                 totalFilteredResults = filteredResults.Count(),
                 totalResults = jsonParsedList.Count(),
-                sampleResult = jsonParsedList.FirstOrDefault()
+                sampleResult = jsonParsedList.FirstOrDefault(),
+                filteredResults = filteredResults
 
             });
         }
