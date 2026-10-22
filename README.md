@@ -1,19 +1,24 @@
 # Search Engine Crawler
 
-A containerized search pipeline: a C# API accepts a query, Redis coordinates work and cache, and a Python worker crawls the web. Results are stored in Redis so the API can return them to the client.
+A containerized search pipeline: a Vite + nginx UI talks to a C# API, Redis coordinates work and cache, and a Python worker crawls the web. Results are stored in Redis so the API can return them to the client.
+
+Repository: [sergiodgtzdev-dude/crawler-engine](https://github.com/sergiodgtzdev-dude/crawler-engine)
 
 ## How it works
 
-1. A client calls the C# API with a search term (`GET /api/search?q=...`).
+1. A user searches from the frontend (`http://localhost:5173`), or a client calls the C# API with a search term (`GET /api/search?q=...`).
 2. The API looks up a Redis cache key (`crawl:{term}`).
-3. **Cache miss:** the API pushes the term onto the Redis list `queue:crawling` and responds with `202 Accepted` (job pending).
+3. **Cache miss:** the API pushes the term onto the Redis list `queue:crawling` and responds with `202 Accepted` (job pending). The UI polls the same endpoint until results are ready (up to ~15 seconds).
 4. The Python worker blocks on that queue (`BRPOP`), crawls the term, and writes processed page data back to Redis under `crawl:{term}` (1-hour TTL).
 5. **Cache hit:** the API deserializes the cached crawl results, filters them against the query, and returns them to the user.
 
 SearXNG supplies the initial result URLs. The Python crawler then fetches those pages (and a limited set of outbound links), extracts title, description, headings, and cleaned text, and skips a blocklist of noisy domains.
 
 ```
-Client  -->  .NET API  -->  Redis queue (queue:crawling)
+Browser  -->  nginx frontend (:5173)
+                 |
+                 v
+              .NET API (:5000)  -->  Redis queue (queue:crawling)
                  ^                    |
                  |                    v
                  |              Python worker
@@ -27,12 +32,13 @@ Client  -->  .NET API  -->  Redis queue (queue:crawling)
 
 | Service | Role |
 | --- | --- |
-| **search_api** | ASP.NET Core API. Enqueues jobs, reads cache, returns results. Host port `5000` maps to container port `8080`. |
+| **search_frontend** | Vite app built as static files and served by nginx. Host port `5173` maps to container port `80`. |
+| **search_api** | ASP.NET Core API. Enqueues jobs, reads cache, returns results. Host port `5000` maps to container port `8080`. CORS allows `http://localhost:5173`. Global rate limit: 80 requests/minute per IP. |
 | **search_worker** | Python asyncio crawler. Listens to `queue:crawling`, crawls, writes `crawl:*`. |
 | **search_redis** | Job queue, result cache, and short-lived processing locks. Port `6379`. |
 | **searxng** | Meta-search backend the worker queries for seed URLs. Port `8080`. |
 
-All services share the Docker network `search-net` (see `compose.yaml`).
+All services share the Docker network `search-net` (see `compose.yaml`). Docker-specific notes live in [README.Docker.md](README.Docker.md).
 
 ## Redis keys
 
@@ -55,6 +61,8 @@ GET /api/search?q=laptop
 - Missing `q`: `400 Bad Request`.
 - No cache yet: `202 Accepted` and the term is queued for the Python worker. Call the same URL again after the crawl finishes.
 - Cache present: `200 OK` with filtered crawl results (title, description, and body text matched against the query words).
+
+Response fields on a cache hit include `status`, `totalFilteredResults`, `totalResults`, and `filteredResults` (url, status code, metadata, headings, and cleaned text).
 
 ### Redis health check
 
@@ -81,25 +89,40 @@ Requires Docker and Docker Compose.
 docker compose up --build
 ```
 
+- Frontend: http://localhost:5173
 - API: http://localhost:5000
 - SearXNG: http://localhost:8080
 - Redis: localhost:6379
 
 Typical first-search flow:
 
-1. `GET http://localhost:5000/api/search?q=your+term` → `202` while the worker crawls.
-2. Repeat the request → `200` with cached, filtered results.
+1. Open the UI and search, or `GET http://localhost:5000/api/search?q=your+term` → `202` while the worker crawls.
+2. The UI retries automatically; a later request returns `200` with cached, filtered results (10 per page in the UI).
+
+### Frontend without Docker
+
+From `search-frontend/`:
+
+```bash
+npm install
+npm run dev
+```
+
+Vite serves the UI on port `5173`. The API must still be reachable at `http://localhost:5000`.
 
 ## Project layout
 
 ```
 .
 ├── compose.yaml
+├── README.Docker.md
 ├── api/SearchEngineAPI/SearchEngineAPI   # C# API + Dockerfile
 ├── crawler                               # Python worker (main.py, crawler.py)
+├── search-frontend                       # Vite + vanilla JS UI, nginx Dockerfile
 └── searxng/settings.yml                  # SearXNG config
 ```
 
-- `api/.../Program.cs` — search, queue push, cache read, admin flush.
+- `api/.../Program.cs` — search, queue push, cache read, CORS, rate limiting, admin flush.
 - `crawler/main.py` — Redis listener, SearXNG seed query, save-to-cache.
 - `crawler/crawler.py` — concurrent page fetch and HTML extraction.
+- `search-frontend/src/main.js` — search polling, result cards, pagination.
