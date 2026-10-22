@@ -60,6 +60,20 @@ services:
     networks:
       - search-net
 
+  # Servicio 5: Frontend Vue.js
+  frontend:
+    build:
+      context: ./search-frontend
+      dockerfile: Dockerfile
+    container_name: search_frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+    restart: always
+    networks:
+      - search-net
+
 networks:
   search-net:
     driver: bridge

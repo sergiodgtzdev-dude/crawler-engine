@@ -35,7 +35,7 @@ async function performSearchOperation() {
   let reachedBackend = false;
   
   let jsonData = null;
-
+  renderSkeletons();
   // calling the C# API endpoint
   try {
     while (tries < maxTries)
@@ -78,14 +78,13 @@ async function performSearchOperation() {
     // 3. Convertimos la respuesta a formato JSON para poder usarla en JS
     currentFilteredResults = [];
     currentFilteredResults = jsonData.filteredResults;
-    // console.log(jsonData.filteredResults);
-    resultsContainer.innerHTML = `<h1>Results for: ${query}</h1>`;
     generatePaginationControls(currentFilteredResults.length, itemsPerPage);
     UpdatePageDataAndControls(1);
   } catch (error) {
     // If the server is down or there is a network error, we catch it here
     console.error("There was an error in the network request:", error);
     statusText.textContent = error;
+    resultsContainer.innerHTML = `<p class="text-red-500 font-medium">There was an error during the search or the maximum search time was reached.</p>`;
   }
 
 }
@@ -109,10 +108,33 @@ function generatePaginationControls(totalItems, currentPage) {
   }
 }
 
+//Adds skeletons to search results container while waiting for the API response
+function renderSkeletons() {
+  resultsContainer.innerHTML = '';
+  resultsContainer.innerHTML = `<h1 class="text-xl font-bold mb-4">Searching the web...</h1>`;
+
+  // Drawing 3 skeletons to simulate loading results
+  for (let i = 0; i < 3; i++) {
+    resultsContainer.innerHTML += `
+      <div class="flex flex-col gap-3 p-4 border border-gray-200 rounded-lg animate-pulse mb-3 bg-white shadow-xs">
+        <!-- Simulates the title line -->
+        <div class="h-6 bg-gray-200 rounded w-3/4"></div>
+        
+        <!-- Simulates the description lines -->
+        <div class="space-y-2">
+          <div class="h-4 bg-gray-200 rounded w-full"></div>
+          <div class="h-4 bg-gray-200 rounded w-5/6"></div>
+        </div>
+      </div>
+    `;
+  }
+}
+
 // Update the displayed results and pagination controls based on the current page
 function UpdatePageDataAndControls(currentPage) {
   resultsContainer.innerHTML = ''; // Clear previous results
       console.log(currentFilteredResults);
+      resultsContainer.innerHTML = `<h1>Results for: ${query}</h1>`;
       let sublist = currentFilteredResults.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
       console.log("Displaying results for page " + currentPage + ": ", sublist);
       for (let i = 0; i < sublist.length; i++) {
